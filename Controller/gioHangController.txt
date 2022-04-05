@@ -1,0 +1,357 @@
+	package com.nguyencthi.shopQuanAo.gioHang;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpSession;
+import javax.transaction.Transactional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import com.nguyencthi.shopQuanAo.chiTietHoaDon.chiTietHoaDon;
+import com.nguyencthi.shopQuanAo.chiTietHoaDon.chiTietHoaDonRepository;
+import com.nguyencthi.shopQuanAo.hoaDon.hoaDon;
+import com.nguyencthi.shopQuanAo.hoaDon.hoaDonRepository;
+import com.nguyencthi.shopQuanAo.nguoiDung.nguoiDung;
+import com.nguyencthi.shopQuanAo.nguoiDung.nguoiDungRepository;
+import com.nguyencthi.shopQuanAo.quanAo.quanAo;
+import com.nguyencthi.shopQuanAo.quanAo.quanAoRepository;
+
+@Controller
+@Transactional
+public class gioHangController {
+
+	@Autowired
+	private gioHangRepository cartRepo;
+	@Autowired
+	private nguoiDungRepository ndRepo;
+
+	@Autowired
+	private quanAoRepository qaRepo;
+
+	@Autowired
+	private HttpSession session;
+	
+	@Autowired
+	private hoaDonRepository hdRepo;
+
+	@GetMapping("/gio-hang")
+	public String showCart(Model model) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if (test == "anonymousUser") {
+			List<gioHangSession> cartItems = (ArrayList<gioHangSession>) session.getAttribute("cartItems");
+
+			if (cartItems == null) {
+				cartItems = new ArrayList<gioHangSession>();
+			}
+			model.addAttribute("cartItems", cartItems);
+			return "gioHang";
+		} else {
+			nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+			List<gioHang> cartItems = cartRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			model.addAttribute("cartItems", cartItems);
+			return "gioHang";
+		}
+
+	}
+
+	public Integer themGioHang(Integer idQuanAo, Integer soLuong, nguoiDung NguoiDung) {
+
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+		Integer addedQuantity = soLuong;
+		quanAo quanao = qaRepo.findById(idQuanAo).get();
+		System.out.println(nguoiDungODAY.getIdNguoiDung() + "/" + idQuanAo);
+		gioHang cartItem = cartRepo.findByNguoiDungAndQuanAo(nguoiDungODAY.getIdNguoiDung(), idQuanAo);
+
+		System.out.println("CartItem" + cartItem);
+		if (cartItem != null) {
+			addedQuantity = cartItem.getSoLuong() + soLuong;
+			cartItem.setSoLuong(addedQuantity);
+
+		} else {
+			cartItem = new gioHang();
+			cartItem.setSoLuong(soLuong);
+			cartItem.setNguoiDung(NguoiDung);
+			cartItem.setQuanAo(quanao);
+		}
+		cartRepo.save(cartItem);
+		return addedQuantity;
+	}
+
+	@PostMapping("/gio-hang/add/{pid}/{qty}")
+	@ResponseBody
+	public String addQuanAoToGioHang(@PathVariable("pid") Integer idQuanAo, @PathVariable("qty") Integer soLuong) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+
+		if (test == "anonymousUser") {
+
+			List<gioHangSession> cart = (ArrayList<gioHangSession>) session.getAttribute("cartItems");
+
+			if (cart == null)
+				cart = new ArrayList<gioHangSession>();
+			gioHangSession thisItem = cart.stream().filter(m -> idQuanAo.equals(m.getIdQuanAo())).findAny()
+					.orElse(null);
+			if (thisItem != null) { // sp có trong giỏ
+				for (gioHangSession gh : cart) {
+					if (gh.getIdQuanAo() == idQuanAo) {
+						gh.setSoLuong(gh.getSoLuong() + soLuong);
+					}
+				}
+
+			} else { // sp chưa có trong giỏ
+
+				quanAo p = qaRepo.getById(idQuanAo);
+				gioHangSession c = new gioHangSession();
+				c.setIdQuanAo(p.getIdQuanAo());
+				c.setTenQuanAo(p.getTenQuanAo());
+				c.setSoLuong(soLuong);
+				c.setGiaTien(p.getGiaTien());
+				c.setUrlAnh(p.getUrlAnh());
+
+				cart.add(c);
+
+			}
+			session.setAttribute("cartItems", cart);
+
+			return "Thêm thành công!";
+		}
+		String findThisEmail = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(findThisEmail);
+
+		System.out.println(findThisEmail);
+		Integer addedQuantity = themGioHang(idQuanAo, soLuong, nguoiDungODAY);
+		return addedQuantity + " sản phẩm đã được thêm vào giỏ hàng!";
+	}
+
+	public Integer updateQuantity(Integer idQuanAo, Integer soLuong, nguoiDung NguoiDung) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+		cartRepo.updateQuantity(soLuong, nguoiDungODAY.getIdNguoiDung(), idQuanAo);
+		quanAo quanao = qaRepo.findById(idQuanAo).get();
+		int subtotal = quanao.getGiaTien() * soLuong;
+		return subtotal;
+	}
+
+	@PostMapping("/gio-hang/update/{pid}/{qty}")
+	@ResponseBody
+	public String updateQuantityGioHang(@PathVariable("pid") Integer idQuanAo, @PathVariable("qty") Integer soLuong,
+			HttpSession session) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+
+		if (test == "anonymousUser") {
+			List<gioHangSession> cart = (ArrayList<gioHangSession>) session.getAttribute("cartItems");
+			gioHangSession thisItem = cart.stream().filter(m -> idQuanAo.equals(m.getIdQuanAo())).findAny()
+					.orElse(null);
+			if (thisItem != null) { // sp có trong giỏ
+				for (gioHangSession gh : cart) {
+					if (gh.getIdQuanAo() == idQuanAo) {
+						gh.setSoLuong(soLuong);
+					}
+				}
+			}
+
+			return String.valueOf(thisItem.getGiaTien() * soLuong);
+		}
+		String findThisEmail = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(findThisEmail);
+
+		Integer subtotal = updateQuantity(idQuanAo, soLuong, nguoiDungODAY);
+		return String.valueOf(subtotal);
+
+	}
+
+	public void removeProduct(Integer idNguoiDung, Integer idQuanAo) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+		String findThisEmail = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(findThisEmail);
+		cartRepo.deleteByNguoiDungAndQuanAo(nguoiDungODAY.getIdNguoiDung(), idQuanAo);
+	}
+
+	@PostMapping("/gio-hang/remove/{pid}")
+	@ResponseBody
+	public String removeQuanAoGioHang(@PathVariable("pid") Integer idQuanAo) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if (test == "anonymousUser") {
+			List<gioHangSession> cart = (ArrayList<gioHangSession>) session.getAttribute("cartItems");
+				for (gioHangSession gh : cart) {
+					if (gh.getIdQuanAo() == idQuanAo) {
+						cart.remove(gh);
+						return "Sản phẩm đã được loại khỏi giỏ hàng!";
+					}
+				}
+				
+		}
+		String findThisEmail = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(findThisEmail);
+		removeProduct(nguoiDungODAY.getIdNguoiDung(), idQuanAo);
+		return "Sản phẩm đã được loại khỏi giỏ hàng!";
+	}
+
+	@PostMapping("/gio-hang/mua-hang")
+	@ResponseBody
+	public String muaHangPurchase() {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if (test == "anonymousUser") {
+			return "Bạn cần đăng nhập để tạo hóa đơn!";
+		}
+		else {
+			nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+			List<gioHang> cartItems = cartRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			if(cartItems==null) {
+				return "Giỏ hàng trống";
+			}else {
+				
+				return "Sẽ chuyển hướng trong 2s!";
+			}
+		}
+	}
+	
+	@GetMapping("/hoa-don")
+	public String muaHangPage(Model model) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if (test == "anonymousUser") {
+			return "redirect:/gio-hang";
+		}
+		else {
+			nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+			List<gioHang> cartItems = cartRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			model.addAttribute("users", nguoiDungODAY);
+			model.addAttribute("cartItems", cartItems);
+			return "muaHang";
+			
+		}
+	}
+	
+	
+	@PostMapping("/gio-hang/add/{pid}")
+	@ResponseBody
+	public String addQuanAoToGioHangInIndex(@PathVariable("pid") Integer idQuanAo) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+
+		if (test == "anonymousUser") {
+
+			List<gioHangSession> cart = (ArrayList<gioHangSession>) session.getAttribute("cartItems");
+
+			if (cart == null)
+				cart = new ArrayList<gioHangSession>();
+			gioHangSession thisItem = cart.stream().filter(m -> idQuanAo.equals(m.getIdQuanAo())).findAny()
+					.orElse(null);
+			if (thisItem != null) { // sp có trong giỏ
+				for (gioHangSession gh : cart) {
+					if (gh.getIdQuanAo() == idQuanAo) {
+						gh.setSoLuong(gh.getSoLuong() + 1);
+					}
+				}
+
+			} else { // sp chưa có trong giỏ
+
+				quanAo p = qaRepo.getById(idQuanAo);
+				gioHangSession c = new gioHangSession();
+				c.setIdQuanAo(p.getIdQuanAo());
+				c.setTenQuanAo(p.getTenQuanAo());
+				c.setSoLuong(1);
+				c.setGiaTien(p.getGiaTien());
+				c.setUrlAnh(p.getUrlAnh());
+				
+				cart.add(c);
+
+			}
+			session.setAttribute("cartItems", cart);
+
+			return "Thêm thành công!";
+		}
+		String findThisEmail = auth.getName();
+		nguoiDung nguoiDungODAY = ndRepo.findByEmail(findThisEmail);
+
+		System.out.println(findThisEmail);
+		Integer addedQuantity = themGioHang(idQuanAo, 1, nguoiDungODAY);
+		return addedQuantity + " sản phẩm đã được thêm vào giỏ hàng!";
+	}
+	
+	
+	@Autowired
+	private chiTietHoaDonRepository cthdRepo;
+	
+	@PostMapping("/process-mua-hang")
+	public String muaHangTaoHD(hoaDon hd, Model model) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if(test == "anonymousUser") {
+			return "redirect:/gio-hang";
+		}else {
+			LocalDate date = LocalDate.now();
+			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+			String datehere = date.format(formatter);
+			Integer trangT = 1;
+			hd.setTrangThai(trangT);
+			nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+			hd.setNguoiDung(nguoiDungODAY);
+			hd.setNgayTao(datehere);
+			hd.setNgaySua(datehere);
+			String noneDay = "NONE";
+			hd.setNgaySua(noneDay);
+			hdRepo.save(hd);
+			List<gioHang> cartItems = cartRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			for(gioHang item : cartItems) {
+				chiTietHoaDon thisCTHD = new chiTietHoaDon();
+				thisCTHD.setSoLuong(item.getSoLuong());
+				thisCTHD.setHoaDon(hd);
+				thisCTHD.setQuanAo(item.getQuanAo());
+				cthdRepo.save(thisCTHD);
+				removeProduct(nguoiDungODAY.getIdNguoiDung(), item.getQuanAo().getIdQuanAo());
+			}
+			
+			return "redirect:/";
+		}
+		
+	}
+	
+
+	
+	@GetMapping("/hoa-don-nd")
+	public String hoaDonND(Model model) {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		String test = auth.getName();
+		if (test == "anonymousUser") {
+			
+			return "redirect:/";
+		} else {
+			nguoiDung nguoiDungODAY = ndRepo.findByEmail(test);
+			List<hoaDon> hoaDonND = hdRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			model.addAttribute("hoaDonND", hoaDonND);
+			List<gioHang> cartItems = cartRepo.findByNguoiDung(nguoiDungODAY.getIdNguoiDung());
+			model.addAttribute("cartItems", cartItems);
+			return "hoaDon";
+		}
+
+	}
+	
+}
